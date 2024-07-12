@@ -7,6 +7,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define BUFFER_SIZE 1024
+
+char *get_response(char *buffer);
+
 int main() {
   // Disable output buffering
   setbuf(stdout, NULL);
@@ -80,12 +84,15 @@ int main() {
     printf("Accept failed: %s \n", strerror(errno));
     return 1;
   }
-
   printf("Client connected\n");
 
-  const char *message = "HTTP/1.1 200 OK\r\n\r\n";
+  char buffer[BUFFER_SIZE] = {0};
+  read(client_socket, buffer, BUFFER_SIZE);
+  // printf("Received:--\n%s\n--\n", buffer);
 
-  ssize_t bytes_sent = send(client_socket, message, strlen(message), 0);
+  char *response = get_response(buffer);
+
+  ssize_t bytes_sent = send(client_socket, response, strlen(response), 0);
   if (bytes_sent == -1) {
     printf("Send failed: %s \n", strerror(errno));
     return 1;
@@ -99,4 +106,13 @@ int main() {
   close(server_fd);
 
   return 0;
+}
+
+char *get_response(char *buffer) {
+  // if request is GET / return 200 OK otherwise return 404 Not Found
+  if (strstr(buffer, "GET / ")) {
+    return "HTTP/1.1 200 OK\r\n\r\n";
+  } else {
+    return "HTTP/1.1 404 Not Found\r\n\r\n";
+  }
 }
