@@ -9,7 +9,12 @@
 #include <unistd.h>
 
 #define BUFFER_SIZE 1024
-#define MAX_RESPONSE_SIZE 1024
+#define MAX_RESPONSE_SIZE 102400
+#define PATH_MAX 1024
+
+// folderPath is char* of at most 100 characters
+
+char folderPath[PATH_MAX] = {0};
 
 struct client_data {
   int client_socket;
@@ -17,11 +22,16 @@ struct client_data {
 
 char *get_response(char *buffer);
 void *handle_client(void *arg);
+int parse_arguments(int argc, char *argv[]);
 
-int main() {
+int main(int argc, char *argv[]) {
   // Disable output buffering
   setbuf(stdout, NULL);
   setbuf(stderr, NULL);
+
+  if (parse_arguments(argc, argv) != 0) {
+    return 1;
+  }
 
   // Declare variables for the server file descriptor and client address
   // information.
@@ -196,6 +206,110 @@ char *get_response(char *buffer) {
              "%.*s",
              user_agent_len, user_agent_len, user_agent);
 
+  } else if (strstr(buffer, "GET /files/")) {
+    // folderPath might be 'empty' (filed with zeroes), so we need to check
+    // that it's not empty.
+    if (folderPath[0] == '\0') {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 500 Internal Server Error\r\n"
+               "\r\n");
+      return response;
+    }
+
+    char *file_name =
+        strstr(buffer, "GET /files/");  // get the pointer to the string.
+    file_name += strlen("GET /files/"); // move pointer to the end of the
+                                        // string.
+    char *end = strchr(file_name, ' '); // find the end of the string.
+
+    if (end == NULL) {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 400 Bad Request\r\n"
+               "\r\n");
+      return response;
+    }
+
+    // Null-terminate the file name
+    *end = '\0';
+
+    // Construct the full file path
+    char full_path[PATH_MAX];
+    snprintf(full_path, PATH_MAX, "%s/%s", folderPath, file_name);
+
+    // Open the file
+    FILE *file = fopen(full_path, "r");
+    if (file == NULL) {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 404 Not Found\r\n"
+               "\r\n");
+      return response;
+    }
+
+    // Get the file size
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    // Read file content
+    char *file_content = malloc(file_size);
+    if (file_content == NULL) {
+      fclose(file);
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 500 Internal Server Error\r\n"
+               "\r\n");
+      return response;
+    }
+    fread(file_content, 1, file_size, file);
+    fclose(file);
+
+    // Determine content type (you may want to expand this)
+    const char *content_type = "application/octet-stream";
+    content_type = "application/octet-stream";
+    /* if (strstr(file_name, ".txt") != NULL) {
+        content_type = "text/plain";
+    } else if (strstr(file_name, ".html") != NULL) {
+        content_type = "text/html";
+    } */
+
+    // Construct the response
+    char *header = malloc(MAX_RESPONSE_SIZE);
+    if (header == NULL) {
+      free(file_content);
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 500 Internal Server Error\r\n"
+               "\r\n");
+      return response;
+    }
+
+    int header_length = snprintf(header, MAX_RESPONSE_SIZE,
+                                 "HTTP/1.1 200 OK\r\n"
+                                 "Content-Type: %s\r\n"
+                                 "Content-Length: %ld\r\n"
+                                 "\r\n",
+                                 content_type, file_size);
+
+    // Allocate memory for full response (header + file content)
+    char *full_response = malloc(header_length + file_size);
+    if (full_response == NULL) {
+      free(file_content);
+      free(header);
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 500 Internal Server Error\r\n"
+               "\r\n");
+      return response;
+    }
+
+    // Combine header and file content
+    memcpy(full_response, header, header_length);
+    memcpy(full_response + header_length, file_content, file_size);
+
+    free(file_content);
+    free(header);
+
+    // Set the response to the full response
+    // Note: This assumes that response is a pointer that can be reassigned
+    response = full_response;
+
   } else {
     snprintf(response, MAX_RESPONSE_SIZE,
              "HTTP/1.1 404 Not Found\r\n"
@@ -203,4 +317,26 @@ char *get_response(char *buffer) {
   }
 
   return response;
+}
+
+int parse_arguments(int argc, char *argv[]) {
+  // TODO: --directory {name} might not be mandatory
+
+  if (argc <= 1) {
+    // printf("Usage: your_server.sh --directory /tmp/\n");
+    return 0;
+  }
+
+  if (argc <= 2) {
+    printf("Usage: your_server.sh --directory /tmp/\n");
+    return 1;
+  }
+
+  if (strcmp(argv[1], "--directory") != 0) {
+    printf("Usage: your_server.sh --directory /tmp/\n");
+    return 1;
+  }
+
+  strcpy(folderPath, argv[2]);
+  return 0;
 }
