@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #define BUFFER_SIZE 1024
+#define MAX_RESPONSE_SIZE 1024
 
 char *get_response(char *buffer);
 
@@ -107,11 +108,36 @@ int main() {
 
   return 0;
 }
-
 char *get_response(char *buffer) {
-  // if request is GET / return 200 OK otherwise return 404 Not Found
+  static char response[MAX_RESPONSE_SIZE];
+
   if (strstr(buffer, "GET / ")) {
     return "HTTP/1.1 200 OK\r\n\r\n";
+  } else if (strstr(buffer, "GET /echo/")) {
+    // request is GET /echo/{str}, read str from buffer and return it on the
+    // response body.
+    char *str = strstr(buffer, "GET /echo/"); // get the pointer to the string.
+    str += strlen("GET /echo/");              // move pointer to the end of the
+                                              // string.
+    char *end = strchr(str, ' ');             // find the end of the string.
+
+    if (end == NULL) {
+      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+    }
+
+    // Calculate the length of the echo string
+    int str_len = end - str;
+
+    // Prepare the response
+    snprintf(response, MAX_RESPONSE_SIZE,
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: text/plain\r\n"
+             "Content-Length: %d\r\n"
+             "\r\n"
+             "%.*s",
+             str_len, str_len, str);
+
+    return response;
   } else {
     return "HTTP/1.1 404 Not Found\r\n\r\n";
   }
