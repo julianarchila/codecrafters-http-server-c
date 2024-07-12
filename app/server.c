@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,12 @@
 #define BUFFER_SIZE 1024
 #define MAX_RESPONSE_SIZE 1024
 
+struct client_data {
+  int client_socket;
+};
+
 char *get_response(char *buffer);
+void *handle_client(void *arg);
 
 int main() {
   // Disable output buffering
@@ -73,46 +79,74 @@ int main() {
   }
 
   printf("Waiting for a client to connect...\n");
+
+  int client_socket;
   client_addr_len = sizeof(client_addr);
-  /*
+
+  // Set up a signal handler
+  while (1) {
+    /*
     The accept() function is called to accept an incoming connection. This will
     block (wait) until a client connects. */
-  int client_socket;
-  client_socket =
-      accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
+    client_socket =
+        accept(server_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 
-  if (client_socket == -1) {
-    printf("Accept failed: %s \n", strerror(errno));
-    return 1;
+    if (client_socket == -1) {
+      printf("Accept failed: %s \n", strerror(errno));
+      return 1;
+    }
+
+    printf("Client connected\n");
+
+    struct client_data *data = malloc(sizeof(struct client_data));
+    data->client_socket = client_socket;
+
+    pthread_t thread_id;
+    if (pthread_create(&thread_id, NULL, handle_client, data) != 0) {
+      printf("Failed to create thread: %s\n", strerror(errno));
+      free(data);
+      close(client_socket);
+    } else {
+      pthread_detach(thread_id);
+    }
   }
-  printf("Client connected\n");
-
-  char buffer[BUFFER_SIZE] = {0};
-  read(client_socket, buffer, BUFFER_SIZE);
-  // printf("Received:\n%s", buffer);
-
-  char *response = get_response(buffer);
-
-  ssize_t bytes_sent = send(client_socket, response, strlen(response), 0);
-  if (bytes_sent == -1) {
-    printf("Send failed: %s \n", strerror(errno));
-    return 1;
-  } else {
-    printf("Sent %zd bytes to client\n", bytes_sent);
-  }
-
-  printf("Closing client socket\n");
-  close(client_socket);
 
   close(server_fd);
 
   return 0;
 }
+
+void *handle_client(void *arg) {
+  struct client_data *data = (struct client_data *)arg;
+  int client_socket = data->client_socket;
+
+  char buffer[BUFFER_SIZE] = {0};
+  read(client_socket, buffer, BUFFER_SIZE);
+
+  char *response = get_response(buffer);
+
+  send(client_socket, response, strlen(response), 0);
+
+  close(client_socket);
+  free(data);
+  free(response);
+  return NULL;
+}
+
 char *get_response(char *buffer) {
-  static char response[MAX_RESPONSE_SIZE];
+  // static char response[MAX_RESPONSE_SIZE];
+  char *response = malloc(MAX_RESPONSE_SIZE);
+  if (response == NULL) {
+    // Handle memory allocation failure
+    return NULL;
+  }
 
   if (strstr(buffer, "GET / ")) {
-    return "HTTP/1.1 200 OK\r\n\r\n";
+    // return "HTTP/1.1 200 OK\r\n\r\n";
+    snprintf(response, MAX_RESPONSE_SIZE,
+             "HTTP/1.1 200 OK\r\n"
+             "\r\n");
+
   } else if (strstr(buffer, "GET /echo/")) {
     // request is GET /echo/{str}, read str from buffer and return it on the
     // response body.
@@ -122,7 +156,10 @@ char *get_response(char *buffer) {
     char *end = strchr(str, ' ');             // find the end of the string.
 
     if (end == NULL) {
-      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 400 Bad Request\r\n"
+               "\r\n");
+      return response;
     }
 
     // Calculate the length of the echo string
@@ -145,7 +182,10 @@ char *get_response(char *buffer) {
 
     char *end = strchr(user_agent, '\r');
     if (end == NULL) {
-      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 400 Bad Request\r\n"
+               "\r\n");
+      return response;
     }
     int user_agent_len = end - user_agent;
     snprintf(response, MAX_RESPONSE_SIZE,
