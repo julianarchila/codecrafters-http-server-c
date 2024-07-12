@@ -53,7 +53,7 @@ int main() {
   struct sockaddr_in serv_addr = {
       .sin_family = AF_INET,
       .sin_port = htons(4221),
-      .sin_addr = {htonl(INADDR_ANY)},
+      .sin_addr = {htonl(INADDR_ANY)}, // Set server addres to 0.0.0.0
   };
 
   // The bind() function is called to associate the socket with the server
@@ -89,7 +89,7 @@ int main() {
 
   char buffer[BUFFER_SIZE] = {0};
   read(client_socket, buffer, BUFFER_SIZE);
-  // printf("Received:--\n%s\n--\n", buffer);
+  // printf("Received:\n%s", buffer);
 
   char *response = get_response(buffer);
 
@@ -137,8 +137,30 @@ char *get_response(char *buffer) {
              "%.*s",
              str_len, str_len, str);
 
-    return response;
+  } else if (strstr(buffer, "GET /user-agent")) {
+    // TODO: read user-agent from headers and return it on the response body.
+
+    char *user_agent = strstr(buffer, "User-Agent: ");
+    user_agent += strlen("User-Agent: ");
+
+    char *end = strchr(user_agent, '\r');
+    if (end == NULL) {
+      return "HTTP/1.1 400 Bad Request\r\n\r\n";
+    }
+    int user_agent_len = end - user_agent;
+    snprintf(response, MAX_RESPONSE_SIZE,
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: text/plain\r\n"
+             "Content-Length: %d\r\n"
+             "\r\n"
+             "%.*s",
+             user_agent_len, user_agent_len, user_agent);
+
   } else {
-    return "HTTP/1.1 404 Not Found\r\n\r\n";
+    snprintf(response, MAX_RESPONSE_SIZE,
+             "HTTP/1.1 404 Not Found\r\n"
+             "\r\n");
   }
+
+  return response;
 }
