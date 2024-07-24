@@ -8,6 +8,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+// My includes
+#include "request_parser.h"
+
 #define BUFFER_SIZE 1024
 #define MAX_RESPONSE_SIZE 102400
 #define PATH_MAX 1024
@@ -18,6 +21,11 @@ char folderPath[PATH_MAX] = {0};
 
 struct client_data {
   int client_socket;
+};
+
+struct response {
+  char *status;
+  char *body;
 };
 
 char *get_response(char *buffer);
@@ -35,7 +43,8 @@ int main(int argc, char *argv[]) {
 
   // Declare variables for the server file descriptor and client address
   // information.
-  int server_fd, client_addr_len;
+  int server_fd;
+  unsigned int client_addr_len;
   struct sockaddr_in client_addr;
 
   /*
@@ -151,13 +160,29 @@ char *get_response(char *buffer) {
     return NULL;
   }
 
-  if (strstr(buffer, "GET / ")) {
+  t_request req;
+  if (parse_request(&req, buffer) != 0) {
+    // TODO: handle parse_request error
+    // return a http bad request response or internal server error
+    return NULL;
+  }
+
+  // printf("Buffer: %s\n", buffer);
+  printf("[line 174] Request: %s-\n", req.method);
+  printf("[line 175] Path: %s-\n", req.path);
+  printf("[line 176] Body: %s-\n", req.body);
+
+  if (strcmp(req.method, "GET") == 0 && strcmp(req.path, "/") == 0) {
+    // if (strstr(buffer, "GET / ")) {
+
     // return "HTTP/1.1 200 OK\r\n\r\n";
+    printf("Handling GET /\n");
     snprintf(response, MAX_RESPONSE_SIZE,
              "HTTP/1.1 200 OK\r\n"
              "\r\n");
 
-  } else if (strstr(buffer, "GET /echo/")) {
+  } else if (strcmp(req.method, "GET") == 0 &&
+             strstr(req.path, "/echo/") != NULL) {
     // request is GET /echo/{str}, read str from buffer and return it on the
     // response body.
     char *str = strstr(buffer, "GET /echo/"); // get the pointer to the string.
@@ -184,7 +209,9 @@ char *get_response(char *buffer) {
              "%.*s",
              str_len, str_len, str);
 
-  } else if (strstr(buffer, "GET /user-agent")) {
+    // } else if (strstr(buffer, "GET /user-agent")) {
+  } else if (strcmp(req.method, "GET") == 0 &&
+             strcmp(req.path, "/user-agent") == 0) {
     // TODO: read user-agent from headers and return it on the response body.
 
     char *user_agent = strstr(buffer, "User-Agent: ");
@@ -206,7 +233,9 @@ char *get_response(char *buffer) {
              "%.*s",
              user_agent_len, user_agent_len, user_agent);
 
-  } else if (strstr(buffer, "GET /files/")) {
+    // } else if (strstr(buffer, "GET /files/")) {
+  } else if (strcmp(req.method, "GET") == 0 &&
+             strstr(req.path, "/files/") != NULL) {
     // folderPath might be 'empty' (filed with zeroes), so we need to check
     // that it's not empty.
     if (folderPath[0] == '\0') {
@@ -315,6 +344,8 @@ char *get_response(char *buffer) {
              "HTTP/1.1 404 Not Found\r\n"
              "\r\n");
   }
+
+  free_request(&req);
 
   return response;
 }
