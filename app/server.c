@@ -339,6 +339,64 @@ char *get_response(char *buffer) {
     // Note: This assumes that response is a pointer that can be reassigned
     response = full_response;
 
+  } else if (strcmp(req.method, "POST") == 0 &&
+             strstr(req.path, "/files/") != NULL) {
+    // folderPath might be 'empty' (filed with zeroes), so we need to check
+    // that it's not empty.
+    if (folderPath[0] == '\0') {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 500 Internal Server Error\r\n"
+               "\r\n");
+      return response;
+    }
+
+    char *file_name =
+        strstr(buffer, "POST /files/");  // get the pointer to the string.
+    file_name += strlen("POST /files/"); // move pointer to the end of the
+                                         // string.
+    char *end = strchr(file_name, ' ');  // find the end of the string.
+
+    if (end == NULL) {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 400 Bad Request\r\n"
+               "\r\n");
+      return response;
+    }
+
+    // Null-terminate the file name
+    *end = '\0';
+
+    // Construct the full file path
+    char full_path[PATH_MAX];
+    snprintf(full_path, PATH_MAX, "%s/%s", folderPath, file_name);
+
+    // Open the file
+    FILE *file = fopen(full_path, "w");
+    if (file == NULL) {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 404 Not Found\r\n"
+               "\r\n");
+      return response;
+    }
+
+    // parse body, req.body is everything after the path, which means the
+    // headers and the body are separated by a blank line
+    char *body = strstr(req.body, "\r\n\r\n");
+    if (body == NULL) {
+      snprintf(response, MAX_RESPONSE_SIZE,
+               "HTTP/1.1 400 Bad Request\r\n"
+               "\r\n");
+      return response;
+    }
+    body += 4;
+
+    // Write file content
+    fwrite(body, 1, strlen(body), file);
+    fclose(file);
+
+    snprintf(response, MAX_RESPONSE_SIZE,
+             "HTTP/1.1 201 Created\r\n"
+             "\r\n");
   } else {
     snprintf(response, MAX_RESPONSE_SIZE,
              "HTTP/1.1 404 Not Found\r\n"
